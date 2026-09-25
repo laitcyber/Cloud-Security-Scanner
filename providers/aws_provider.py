@@ -1,52 +1,53 @@
 import boto3
 from botocore.exceptions import ClientError
-from providers.base import Provider  # Importa l'interfaccia base
+from providers.base import Provider  # Importa l'interfaccia base astratta comune ai provider
 
 class AWSProvider(Provider):
     """
     Implementazione del Provider per AWS.
-    Usa boto3 per autenticarsi ed estrarre le risorse cloud.
+    Utilizza boto3 per gestire l'autenticazione ed esporre metodi di interrogazione 
+    standardizzati per risorse Storage (S3), Rete (Security Group) e Identità (IAM).
     """
     def __init__(self):
-        # Inizializza la sessione a None. Verrà popolata in authenticate()
+        # Inizializza la sessione a None; verrà popolata all'avvio in authenticate()
         self.session = None
 
     def authenticate(self):
         """
-        Autentica lo scanner usando le credenziali locali AWS (es. quelle
-        configurate con 'aws configure').
+        Autentica lo scanner leggendo le credenziali e la regione configurate 
+        nell'ambiente locale (es. variabili d'ambiente o profilo AWS CLI attivo).
         """
         try:
-            # Crea una nuova sessione boto3 usando le credenziali di default
+            # Crea una sessione boto3. Se è impostato export AWS_PROFILE=redteam,
+            # boto3 userà in automatico quel profilo e la sua regione predefinita.
             self.session = boto3.Session()
-            # Inizializza il client STS (Security Token Service) per verificare le credenziali
-            sts = self.session.client('sts')
             
-            # get_caller_identity() serve come test rapido: se funziona, siamo loggati
+            # Inizializza il client STS per validare l'identità attiva
+            sts = self.session.client('sts')
             identity = sts.get_caller_identity()
+            
             print(f"[AWS] Autenticazione riuscita. Connesso come ARN: {identity['Arn']}")
             return True
             
         except ClientError as e:
-            # Se le credenziali sono errate o non configurate, cattura l'errore
+            # Cattura errori di chiavi mancanti, errate o scadute
             print(f"[AWS] Errore di autenticazione: {e}")
             return False
 
     def list_storage_resources(self):
         """
-        Recupera la lista dei bucket S3 presenti sull'account.
-        Questo metodo verrà chiamato dal plugin public_storage.py.
+        Recupera la lista dei nomi di tutti i bucket S3 presenti sull'account.
+        Viene interrogato dal plugin di analisi storage (es. s3_public.py).
         """
         if not self.session:
             raise Exception("Provider AWS non autenticato. Chiama authenticate() per primo.")
         
         try:
-            # Crea un client per il servizio S3
+            # S3 ha un endpoint globale: non richiede specifica rigida della regione per list_buckets
             s3 = self.session.client('s3')
-            # Richiede ad AWS la lista di tutti i bucket
             response = s3.list_buckets()
             
-            # Estrae solo i nomi dei bucket dalla risposta dell'API
+            # Estrae la lista dei nomi dei bucket
             buckets = [bucket['Name'] for bucket in response.get('Buckets', [])]
             return buckets
             
@@ -56,22 +57,58 @@ class AWSProvider(Provider):
 
     def list_network_resources(self):
         """
-        Recupera la lista dei Security Group.
-        Questo metodo verrà chiamato dal plugin open_network.py.
+        Recupera tutti i Security Group presenti nella regione configurata.
+        Viene interrogato dal plugin open_network.py per analizzare le regole Ingress.
         """
         if not self.session:
             raise Exception("Provider AWS non autenticato. Chiama authenticate() per primo.")
             
         try:
-            # Crea un client per il servizio EC2, che gestisce i Security Group
-            ec2 = self.session.client('ec2', region_name='eu-central-1') # Puoi cambiare la regione se serve
+            # Inizializza il client EC2. Se la sessione ha una regione (es. eu-central-1), usa quella
+            region = self.session.region_name or 'eu-central-1'
+            ec2 = self.session.client('ec2', region_name=region)
             
-            # Richiede ad AWS la lista dei Security Group
+            # Recupera tutti i Security Group della regione
             response = ec2.describe_security_groups()
-            
-            # Ritorna la lista completa dei Security Group con tutte le loro regole
             return response.get('SecurityGroups', [])
             
         except ClientError as e:
             print(f"[AWS] Errore nel recupero dei Security Group: {e}")
+            return []
+
+    def list_iam_users_with_policies(self):
+        """
+        Enumera gli utenti IAM dell'account e recupera per ciascuno le managed policy allegate.
+        Fornisce i dati grezzi necessari a plugins/aws/iam_overprivileged.py.
+        """
+        if not self.session:
+            raise Exception("Provider AWS non autenticato. Chiama authenticate() per primo.")
+
+        try:
+            # IAM è un servizio globale in AWS
+            iam = self.session.client('iam')
+            users_data = []
+
+            # 1. Recupera la lista di tutti gli utenti IAM
+            paginator = iam.get_paginator('list_users')
+            for page in paginator.paginate():
+                for user in page.get('Users', []):
+                    username = user['UserName']
+                    
+                    # 2. Recupera le Managed Policies direttamente allegate all'utente
+                    attached_policies_resp = iam.list_attached_user_policies(UserName=username)
+                    attached_policies = attached_policies_resp.get('AttachedPolicies', [])
+                    
+                    # 3. Struttura i dati per l'elaborazione del plugin
+                    users_data.append({
+                        "UserName": username,
+                        "Arn": user['Arn'],
+                        "Policies": attached_policies  # Contiene [{'PolicyName': '...', 'PolicyArn': '...'}]
+                    })
+
+            return users_data
+
+        except ClientError as e:
+            # In caso di permessi limitati o errori API, registra l'errore senza bloccare lo scanner
+            print(f"[AWS] Errore nel recupero degli utenti/policy IAM: {e}")
             return []
