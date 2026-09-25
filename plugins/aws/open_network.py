@@ -1,6 +1,7 @@
+from core.plugin import Plugin
 from core.finding import Finding, Severity
 
-# Dizionario delle porte critiche che non dovrebbero mai essere esposte al pubblico
+# Porte sensibili da classificare con severità HIGH se aperte a tutti
 CRITICAL_PORTS = {
     22: "SSH",
     3389: "RDP",
@@ -10,38 +11,43 @@ CRITICAL_PORTS = {
     5432: "PostgreSQL"
 }
 
-class OpenNetworkPlugin:
+class OpenNetworkPlugin(Plugin):
     """
-    Plugin per il rilevamento di Security Group con regole Ingress aperte a 0.0.0.0/0.
+    Plugin per rilevare Security Group con regole Ingress aperte a 0.0.0.0/0.
+    Eredita da core.plugin.Plugin per essere caricato dinamicamente da Engine.
     """
-    def __init__(self, provider):
-        # Riceve l'istanza di AWSProvider inizializzata dall'engine
-        self.provider = provider
+    def __init__(self):
+        super().__init__()
+        self.name = "AWS Open Security Groups"
 
-    def run(self):
+    def run(self, provider) -> list[Finding]:
+        """
+        Riceve l'istanza del provider passata da Engine.run()
+        ed esegue l'audit dei Security Group.
+        """
         findings = []
         
-        # Chiama il metodo definito in AWSProvider per ottenere i Security Group
-        security_groups = self.provider.list_network_resources()
+        # Recupera i Security Group tramite il metodo esposto da AWSProvider
+        security_groups = provider.list_network_resources()
 
         for sg in security_groups:
             sg_id = sg.get("GroupId", "Unknown-SG")
             sg_name = sg.get("GroupName", "Unknown-Name")
 
-            # Itera sulle regole del traffico in entrata (IpPermissions)
+            # Itera sulle regole del traffico in ingresso (IpPermissions)
             for rule in sg.get("IpPermissions", []):
                 ip_protocol = rule.get("IpProtocol", "")
                 from_port = rule.get("FromPort")
                 to_port = rule.get("ToPort")
 
-                # Verifica se tra i range IPv4 c'è l'apertura totale (0.0.0.0/0)
+                # Verifica se esiste una regola con CIDR 0.0.0.0/0
                 is_open_to_all = any(
                     ip_range.get("CidrIp") == "0.0.0.0/0" 
                     for ip_range in rule.get("IpRanges", [])
                 )
 
                 if is_open_to_all:
-                    # Caso 1: Tutto il traffico consentito su ogni porta (protocollo -1)
+                    # Caso 1: Tutto il traffico consentito su qualsiasi porta
                     if ip_protocol == "-1":
                         findings.append(
                             Finding(
@@ -51,9 +57,8 @@ class OpenNetworkPlugin:
                                 remediation="Limitare il traffico in ingresso solo ai protocolli e agli IP strettamente necessari."
                             )
                         )
-                    # Caso 2: Intervalli o porte specifiche aperte a tutti
+                    # Caso 2: Intervallo o porta specifica aperta a tutti
                     elif from_port is not None and to_port is not None:
-                        # Controlla se il range include una delle porte critiche definite sopra
                         flagged_ports = [
                             f"{p} ({name})" 
                             for p, name in CRITICAL_PORTS.items() 
