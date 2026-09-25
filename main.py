@@ -16,7 +16,7 @@ def main():
     print(f"[*] Avvio Cloud Security Scanner sul provider: {args.provider.upper()}")
 
     # Inizializza l'orchestratore
-    engine = Engine()
+    engine = Engine(args.provider)
     
     # Esegue tutti i plugin presenti nella cartella del provider scelto (es. plugins.aws)
     # L'engine si occuperà in automatico di fare il login e lanciare i check
