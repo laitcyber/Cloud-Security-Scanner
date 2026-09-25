@@ -1,3 +1,4 @@
+# AWS SDK
 boto3==1.42.97
 botocore==1.42.97
 jmespath==1.1.0
@@ -5,3 +6,12 @@ python-dateutil==2.9.0.post0
 s3transfer==0.16.1
 six==1.17.0
 urllib3==1.26.20
+
+# Azure SDK
+azure-identity>=1.15.0
+azure-mgmt-storage>=21.0.0
+azure-mgmt-network>=25.0.0
+azure-mgmt-authorization>=4.0.0
+
+# CLI & Reporting
+rich>=13.0.0
