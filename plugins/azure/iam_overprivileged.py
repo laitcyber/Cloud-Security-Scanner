@@ -6,7 +6,7 @@ Identifica l'assegnazione di ruoli critici (es. Owner, Contributor) a livello
 di Subscription o Resource Group.
 """
 
-from core.finding import Finding
+from core.finding import Finding, Severity
 from core.plugin import Plugin
 
 
@@ -16,20 +16,17 @@ class IAMOverprivilegedPlugin(Plugin):
     per individuare identità con ruoli ad alto privilegio su ambiti estesi.
     """
 
-    # Ruoli considerati ad alto rischio/sovra-privilegiati
+    name = "Azure IAM Overprivileged Check"
+    description = "Rileva assegnazioni di ruoli ad alto privilegio (Owner, Contributor) su Subscription o Resource Group."
+
+    # Ruoli considerati ad alto rischio/sovra-privilegiati (nome in minuscolo -> Severity)
     CRITICAL_ROLES = {
-        "owner": "CRITICAL",
-        "contributor": "HIGH",
-        "user access administrator": "HIGH",
+        "owner": Severity.CRITICAL,
+        "contributor": Severity.HIGH,
+        "user access administrator": Severity.HIGH,
     }
 
-    def __init__(self):
-        super().__init__(
-            name="Azure IAM Overprivileged Check",
-            description="Rileva assegnazioni di ruoli ad alto privilegio (Owner, Contributor) su Subscription o Resource Group.",
-        )
-
-    def run(self, provider) -> list:
+    def run(self, provider) -> list[Finding]:
         """
         Esegue la scansione dei Role Assignment tramite il provider Azure.
         """
@@ -52,25 +49,21 @@ class IAMOverprivilegedPlugin(Plugin):
                 # Identifica il tipo di ambito (Subscription vs Resource Group)
                 scope_type = "Subscription" if scope.count("/") <= 2 else "Resource Group"
 
-                description = (
-                    f"Identificata un'assegnazione di ruolo sovra-privilegiata: l'entità '{principal_id}' "
-                    f"({principal_type}) possiede il ruolo '{role_name}' assegnato a livello di {scope_type} "
-                    f"(Scope: '{scope}')."
+                findings.append(
+                    Finding(
+                        severity=severity,
+                        resource=f"Role Assignment: {role_name} -> {principal_id} ({scope_type})",
+                        description=(
+                            f"Assegnazione di ruolo sovra-privilegiata: l'entità "
+                            f"'{principal_id}' ({principal_type}) possiede il ruolo "
+                            f"'{role_name}' a livello di {scope_type} (Scope: '{scope}')."
+                        ),
+                        remediation=(
+                            f"Applicare il principio del minimo privilegio: rimuovere il "
+                            f"ruolo '{role_name}' dallo scope esteso e assegnare ruoli più "
+                            "specifici (Custom Role) limitati alle sole risorse necessarie."
+                        ),
+                    )
                 )
-
-                remediation = (
-                    f"Applicare il principio del minimo privilegio (Least Privilege): "
-                    f"rimuovere il ruolo '{role_name}' dallo scope esteso e assegnare ruoli con permessi "
-                    f"più specifici (Custom Role) limitati alle sole risorse strettamente necessarie."
-                )
-
-                finding = Finding(
-                    title=f"Assegnazione ruolo critico ({role_name}) su scope esteso",
-                    description=description,
-                    severity=severity,
-                    resource_id=assignment.get("id", f"/providers/Microsoft.Authorization/roleAssignments/{principal_id}"),
-                    remediation=remediation,
-                )
-                findings.append(finding)
 
         return findings

@@ -5,7 +5,7 @@ Plugin per il rilevamento di Network Security Group (NSG) su Azure
 con regole Inbound aperte verso Internet (*, 0.0.0.0/0, Internet).
 """
 
-from core.finding import Finding
+from core.finding import Finding, Severity
 from core.plugin import Plugin
 
 
@@ -15,10 +15,13 @@ class OpenNetworkPlugin(Plugin):
     per individuare esposizioni di rete non sicure.
     """
 
-    # Liste di prefissi sorgente considerati "aperti a tutti"
+    name = "Azure Open Network Check"
+    description = "Rileva Network Security Group (NSG) con regole Inbound aperte verso Internet."
+
+    # Prefissi sorgente considerati "aperti a tutti"
     OPEN_SOURCE_PREFIXES = ["*", "0.0.0.0/0", "internet"]
 
-    # Porte ad alto rischio da segnalare con severità HIGH o CRITICAL
+    # Porte ad alto rischio da segnalare con severità HIGH
     HIGH_RISK_PORTS = {
         "22": "SSH",
         "3389": "RDP",
@@ -30,13 +33,7 @@ class OpenNetworkPlugin(Plugin):
         "6379": "Redis",
     }
 
-    def __init__(self):
-        super().__init__(
-            name="Azure Open Network Check",
-            description="Rileva Network Security Group (NSG) con regole Inbound aperte verso Internet.",
-        )
-
-    def run(self, provider) -> list:
+    def run(self, provider) -> list[Finding]:
         """
         Esegue la scansione dei Network Security Group del provider Azure.
         """
@@ -52,7 +49,7 @@ class OpenNetworkPlugin(Plugin):
 
             for rule in rules:
                 # Controlliamo solo le regole che permettono il traffico (Allow)
-                if rule.get("access", "").lower() != "allow":
+                if str(rule.get("access", "")).lower() != "allow":
                     continue
 
                 # Estrazione e normalizzazione dei sorgenti
@@ -65,9 +62,7 @@ class OpenNetworkPlugin(Plugin):
                     )
 
                 # Verifica se la regola permette l'accesso da qualsiasi fonte
-                is_open = any(
-                    src in self.OPEN_SOURCE_PREFIXES for src in sources
-                )
+                is_open = any(src in self.OPEN_SOURCE_PREFIXES for src in sources)
 
                 if is_open:
                     # Estrazione e normalizzazione delle porte di destinazione
@@ -84,42 +79,40 @@ class OpenNetworkPlugin(Plugin):
                     # Determinazione della severità in base alle porte esposte
                     severity, risk_desc = self._evaluate_severity(ports)
 
-                    description = (
-                        f"Il Network Security Group '{nsg_name}' (Resource Group: '{resource_group}') "
-                        f"ha la regola Inbound '{rule['name']}' aperta verso Internet ({', '.join(sources)}). "
-                        f"Porte interessate: {port_str} ({risk_desc})."
+                    findings.append(
+                        Finding(
+                            severity=severity,
+                            resource=f"NSG: {nsg_name} (RG: {resource_group}) / rule: {rule['name']}",
+                            description=(
+                                f"Il Network Security Group '{nsg_name}' (Resource Group: "
+                                f"'{resource_group}') ha la regola Inbound '{rule['name']}' "
+                                f"aperta verso Internet ({', '.join(sources)}). "
+                                f"Porte interessate: {port_str} ({risk_desc})."
+                            ),
+                            remediation=(
+                                f"Restringere la regola '{rule['name']}' nel NSG '{nsg_name}' "
+                                "limitando 'source_address_prefix' a IP/CIDR specifici e "
+                                "fidati invece di wildcard/Internet."
+                            ),
+                        )
                     )
-
-                    remediation = (
-                        f"Restringere la regola '{rule['name']}' nel NSG '{nsg_name}' "
-                        f"limitando 'source_address_prefix' a IP/CIDR specifici e fidati invece di wildcard/Internet."
-                    )
-
-                    finding = Finding(
-                        title="Network Security Group aperto a Internet",
-                        description=description,
-                        severity=severity,
-                        resource_id=f"/resourceGroups/{resource_group}/nsg/{nsg_name}/rules/{rule['name']}",
-                        remediation=remediation,
-                    )
-                    findings.append(finding)
 
         return findings
 
     def _evaluate_severity(self, ports: list) -> tuple:
         """
-        Calcola la severità della vulnerabilità in base alle porte esposte.
-        Restituisce una tupla (severity, risk_description).
+        Calcola la severità in base alle porte esposte.
+        Restituisce (Severity, descrizione del rischio).
         """
         # Se è aperta qualsiasi porta (*)
         if "*" in ports:
-            return "CRITICAL", "Tutte le porte aperte"
+            return Severity.CRITICAL, "Tutte le porte aperte"
 
-        # Controlla se tra le porte c'è una porta ad alto rischio
+        # Porte ad alto rischio
         for port in ports:
             if port in self.HIGH_RISK_PORTS:
                 service = self.HIGH_RISK_PORTS[port]
-                return "HIGH", f"Servizio critico esposto: {service} (porta {port})"
+                return Severity.HIGH, f"Servizio critico esposto: {service} (porta {port})"
 
-        # Per porte generiche (es. 80, 443 o custom)
-        return "MEDIUM", "Porte generiche aperte"
+        # Porte generiche (es. 80, 443 o custom)
+        return Severity.MEDIUM, "Porte generiche aperte"
