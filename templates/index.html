@@ -1,0 +1,334 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cloud Security Scanner</title>
+<style>
+  :root {
+    --bg: #0b1119;
+    --panel: #121b2a;
+    --panel-2: #18233a;
+    --border: #253349;
+    --text: #e8eef7;
+    --muted: #93a4c0;
+    --crit: #c02433;
+    --high: #d4700f;
+    --med: #c7a008;
+    --low: #2e7d46;
+    --aws: #ff9900;
+    --azure: #2b8fe0;
+    --radius: 14px;
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; }
+  body {
+    font-family: -apple-system, "Segoe UI", "Helvetica Neue", Arial, sans-serif;
+    background: radial-gradient(1200px 600px at 50% -10%, #16233b 0%, var(--bg) 60%);
+    color: var(--text);
+    line-height: 1.55;
+    min-height: 100vh;
+  }
+  .hidden { display: none !important; }
+  .container { max-width: 1120px; margin: 0 auto; padding: 0 20px; }
+
+  /* ---------- LANDING ---------- */
+  #view-landing { min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 40px 20px; }
+  .brand-top { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+  .brand-top .shield { font-size: 34px; }
+  #view-landing h1 { font-size: 30px; margin: 0; letter-spacing: .3px; }
+  #view-landing .sub { color: var(--muted); font-size: 15px; margin: 10px 0 40px; max-width: 540px; }
+  .choose-label { color: var(--muted); font-size: 13px; text-transform: uppercase; letter-spacing: 1.5px; margin-bottom: 18px; }
+  .provider-grid { display: flex; gap: 22px; flex-wrap: wrap; justify-content: center; }
+  .provider-card {
+    width: 260px; background: var(--panel); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 0; cursor: pointer; overflow: hidden;
+    transition: transform .15s, border-color .15s, box-shadow .15s; text-align: left;
+  }
+  .provider-card:hover { transform: translateY(-4px); box-shadow: 0 14px 34px rgba(0,0,0,.4); }
+  .provider-card .cap { height: 92px; display: flex; align-items: center; justify-content: center; }
+  .provider-card.aws .cap { background: linear-gradient(135deg, #3a2a10, #4a3310); border-bottom: 2px solid var(--aws); }
+  .provider-card.azure .cap { background: linear-gradient(135deg, #10263a, #113048); border-bottom: 2px solid var(--azure); }
+  .provider-card:hover.aws { border-color: var(--aws); }
+  .provider-card:hover.azure { border-color: var(--azure); }
+  .provider-card .body { padding: 18px 20px 22px; }
+  .provider-card .name { font-size: 20px; font-weight: 700; }
+  .provider-card .full { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .provider-card .go { margin-top: 14px; font-size: 13px; font-weight: 600; }
+  .provider-card.aws .go { color: var(--aws); }
+  .provider-card.azure .go { color: var(--azure); }
+
+  /* ---------- DASHBOARD ---------- */
+  .topbar {
+    position: sticky; top: 0; z-index: 10; background: rgba(11,17,25,.92);
+    backdrop-filter: blur(8px); border-bottom: 1px solid var(--border);
+  }
+  .topbar .row { display: flex; align-items: center; gap: 14px; padding: 14px 0; flex-wrap: wrap; }
+  .back { background: none; border: 1px solid var(--border); color: var(--muted); border-radius: 8px; padding: 8px 12px; font-size: 13px; cursor: pointer; }
+  .back:hover { color: var(--text); border-color: var(--muted); }
+  .chip { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; font-size: 16px; padding: 6px 12px; border-radius: 8px; }
+  .chip.aws { color: var(--aws); background: rgba(255,153,0,.12); }
+  .chip.azure { color: var(--azure); background: rgba(43,143,224,.14); }
+  .spacer { flex: 1; }
+  .btn { border: none; border-radius: 8px; padding: 9px 16px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+  .btn.primary { background: #3b82f6; color: #fff; }
+  .btn.primary:hover { filter: brightness(1.1); }
+  .btn.ghost { background: var(--panel-2); color: var(--text); border: 1px solid var(--border); }
+  .btn:disabled { opacity: .45; cursor: not-allowed; }
+
+  main { padding: 26px 0 70px; }
+  #status { font-size: 14px; color: var(--muted); margin: 0 0 20px; min-height: 20px; }
+  #status.error { color: #ff8a8a; }
+  #status.ok { color: #86d9a0; }
+
+  .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 26px; }
+  .stat { background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); padding: 16px 18px; }
+  .stat .n { font-size: 30px; font-weight: 800; line-height: 1; }
+  .stat .l { font-size: 11.5px; color: var(--muted); text-transform: uppercase; letter-spacing: 1px; margin-top: 8px; }
+  .stat.total .n { color: var(--text); }
+  .stat.crit .n { color: #ff6b76; }
+  .stat.high .n { color: #ffa24d; }
+  .stat.med .n { color: #e8c33a; }
+
+  .findings { display: flex; flex-direction: column; gap: 14px; }
+  .finding {
+    background: var(--panel); border: 1px solid var(--border); border-left-width: 4px;
+    border-radius: var(--radius); padding: 16px 18px;
+  }
+  .finding.CRITICAL { border-left-color: var(--crit); }
+  .finding.HIGH { border-left-color: var(--high); }
+  .finding.MEDIUM { border-left-color: var(--med); }
+  .finding.LOW { border-left-color: var(--low); }
+  .f-head { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+  .sev { font-size: 11px; font-weight: 800; letter-spacing: .6px; padding: 4px 10px; border-radius: 20px; color: #fff; }
+  .sev.CRITICAL { background: var(--crit); }
+  .sev.HIGH { background: var(--high); }
+  .sev.MEDIUM { background: var(--med); color: #1a1a1a; }
+  .sev.LOW { background: var(--low); }
+  .f-res { font-family: "SF Mono", Menlo, Consolas, monospace; font-size: 13px; color: #bcd3f5; word-break: break-all; }
+  .f-desc { font-size: 13.5px; color: var(--text); margin: 6px 0 12px; }
+  .f-rem {
+    background: var(--panel-2); border: 1px solid var(--border); border-radius: 10px;
+    padding: 10px 12px; font-size: 12.5px; color: var(--muted);
+  }
+  .f-rem .tag { display: inline-block; font-size: 10.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; color: #7fb3ff; margin-bottom: 3px; }
+
+  .empty { text-align: center; padding: 50px; color: var(--muted); background: var(--panel); border: 1px solid var(--border); border-radius: var(--radius); }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--muted); border-top-color: transparent; border-radius: 50%; animation: spin .7s linear infinite; vertical-align: -2px; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  @media (max-width: 680px) {
+    .stats { grid-template-columns: repeat(2, 1fr); }
+    .provider-card { width: 100%; max-width: 320px; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ===================== LANDING ===================== -->
+<section id="view-landing">
+  <div class="brand-top">
+    <span class="shield">🛡️</span>
+    <h1>Cloud Security Scanner</h1>
+  </div>
+  <p class="sub">Rilevamento automatico delle misconfigurazioni di sicurezza su ambienti cloud, con livello di gravità e indicazioni di correzione.</p>
+
+  <div class="choose-label">Seleziona il provider da analizzare</div>
+  <div class="provider-grid">
+
+    <button class="provider-card aws" onclick="chooseProvider('aws')">
+      <div class="cap">
+        <!-- AWS mark -->
+        <svg width="90" height="54" viewBox="0 0 90 54" aria-label="AWS">
+          <text x="45" y="30" text-anchor="middle" font-family="Arial, sans-serif" font-size="26" font-weight="700" fill="#ff9900">aws</text>
+          <path d="M20 40 C 35 48, 55 48, 70 40" stroke="#ff9900" stroke-width="3" fill="none" stroke-linecap="round"/>
+          <path d="M66 36 L72 40 L66 44" stroke="#ff9900" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="body">
+        <div class="name">AWS</div>
+        <div class="full">Amazon Web Services</div>
+        <div class="go">Analizza &rarr;</div>
+      </div>
+    </button>
+
+    <button class="provider-card azure" onclick="chooseProvider('azure')">
+      <div class="cap">
+        <!-- Azure mark -->
+        <svg width="54" height="54" viewBox="0 0 48 48" aria-label="Azure">
+          <defs>
+            <linearGradient id="azg" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#3ccbf4"/>
+              <stop offset="1" stop-color="#2b8fe0"/>
+            </linearGradient>
+          </defs>
+          <path d="M22 7 h8 l12 34 h-11 l-2.4 -7 h-9.5 z" fill="url(#azg)"/>
+          <path d="M20 13 h7 l-14 28 h-9 z" fill="#1f6fb2"/>
+        </svg>
+      </div>
+      <div class="body">
+        <div class="name">Azure</div>
+        <div class="full">Microsoft Azure</div>
+        <div class="go">Analizza &rarr;</div>
+      </div>
+    </button>
+
+  </div>
+</section>
+
+<!-- ===================== DASHBOARD ===================== -->
+<section id="view-dash" class="hidden">
+  <div class="topbar">
+    <div class="container row">
+      <button class="back" onclick="backToLanding()">&larr; Cambia provider</button>
+      <span id="chip" class="chip aws">AWS</span>
+      <span class="spacer"></span>
+      <button id="scanBtn" class="btn primary" onclick="runScan()">Riscansiona</button>
+      <button id="dlBtn" class="btn ghost" onclick="downloadJson()" disabled>Scarica report JSON</button>
+    </div>
+  </div>
+
+  <main class="container">
+    <p id="status">Pronto.</p>
+
+    <div class="stats hidden" id="stats">
+      <div class="stat total"><div class="n" id="c-total">0</div><div class="l">Totale</div></div>
+      <div class="stat crit"><div class="n" id="c-crit">0</div><div class="l">Critical</div></div>
+      <div class="stat high"><div class="n" id="c-high">0</div><div class="l">High</div></div>
+      <div class="stat med"><div class="n" id="c-med">0</div><div class="l">Medium</div></div>
+    </div>
+
+    <div class="findings" id="findings"></div>
+  </main>
+</section>
+
+<script>
+  let currentProvider = 'aws';
+  let lastData = null;
+
+  function chooseProvider(p) {
+    currentProvider = p;
+    document.getElementById('view-landing').classList.add('hidden');
+    document.getElementById('view-dash').classList.remove('hidden');
+
+    const chip = document.getElementById('chip');
+    chip.className = 'chip ' + p;
+    chip.textContent = p.toUpperCase();
+
+    // avvia subito la scansione del provider scelto
+    runScan();
+  }
+
+  function backToLanding() {
+    document.getElementById('view-dash').classList.add('hidden');
+    document.getElementById('view-landing').classList.remove('hidden');
+    // reset
+    document.getElementById('stats').classList.add('hidden');
+    document.getElementById('findings').innerHTML = '';
+    lastData = null;
+  }
+
+  async function runScan() {
+    const btn = document.getElementById('scanBtn');
+    const status = document.getElementById('status');
+
+    btn.disabled = true;
+    document.getElementById('dlBtn').disabled = true;
+    status.className = '';
+    status.innerHTML = '<span class="spinner"></span> Scansione di ' + currentProvider.toUpperCase() + ' in corso…';
+    document.getElementById('stats').classList.add('hidden');
+    document.getElementById('findings').innerHTML = '';
+
+    try {
+      const resp = await fetch('/scan?provider=' + encodeURIComponent(currentProvider));
+      const data = await resp.json();
+
+      if (!data.ok) {
+        status.className = 'error';
+        status.textContent = '⚠️ ' + (data.error || 'Scansione fallita');
+        return;
+      }
+
+      lastData = data;
+      render(data);
+      status.className = 'ok';
+      status.textContent = '✅ Scansione completata su ' + data.provider.toUpperCase() +
+                           ' — trovati ' + data.count + ' problemi.';
+      document.getElementById('dlBtn').disabled = (data.count === 0);
+    } catch (e) {
+      status.className = 'error';
+      status.textContent = '⚠️ Errore di connessione al server: ' + e.message;
+    } finally {
+      btn.disabled = false;
+    }
+  }
+
+  function render(data) {
+    document.getElementById('c-total').textContent = data.count;
+    document.getElementById('c-crit').textContent = data.counts.CRITICAL || 0;
+    document.getElementById('c-high').textContent = data.counts.HIGH || 0;
+    document.getElementById('c-med').textContent = data.counts.MEDIUM || 0;
+    document.getElementById('stats').classList.remove('hidden');
+
+    const order = { CRITICAL: 0, HIGH: 1, MEDIUM: 2, LOW: 3 };
+    const rows = data.findings.slice().sort(
+      (a, b) => (order[a.severity] ?? 9) - (order[b.severity] ?? 9)
+    );
+
+    const box = document.getElementById('findings');
+    box.innerHTML = '';
+
+    if (rows.length === 0) {
+      box.innerHTML = '<div class="empty">Nessuna vulnerabilità rilevata ✅</div>';
+      return;
+    }
+
+    for (const f of rows) {
+      const card = document.createElement('div');
+      card.className = 'finding ' + f.severity;
+
+      const head = document.createElement('div');
+      head.className = 'f-head';
+      const badge = document.createElement('span');
+      badge.className = 'sev ' + f.severity;
+      badge.textContent = f.severity;
+      const res = document.createElement('span');
+      res.className = 'f-res';
+      res.textContent = f.resource;
+      head.appendChild(badge);
+      head.appendChild(res);
+
+      const desc = document.createElement('div');
+      desc.className = 'f-desc';
+      desc.textContent = f.description;
+
+      const rem = document.createElement('div');
+      rem.className = 'f-rem';
+      const tag = document.createElement('div');
+      tag.className = 'tag';
+      tag.textContent = 'Remediation';
+      const remText = document.createElement('div');
+      remText.textContent = f.remediation;
+      rem.appendChild(tag);
+      rem.appendChild(remText);
+
+      card.appendChild(head);
+      card.appendChild(desc);
+      card.appendChild(rem);
+      box.appendChild(card);
+    }
+  }
+
+  function downloadJson() {
+    if (!lastData) return;
+    const blob = new Blob([JSON.stringify(lastData.findings, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'report_' + lastData.provider + '.json';
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+</script>
+</body>
+</html>

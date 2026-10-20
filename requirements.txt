@@ -15,3 +15,6 @@ azure-mgmt-authorization>=4.0.0
 
 # CLI & Reporting
 rich>=13.0.0
+
+# Web UI (interfaccia grafica locale)
+flask>=3.0.0
