@@ -54,12 +54,27 @@ nessuna parte.
 | `imds_check.py` | Istanze EC2 che permettono ancora IMDSv1 (esposte a SSRF) | HIGH |
 | `cloudtrail_audit.py` | CloudTrail assente, spento o senza copertura multi-region | MEDIUM / HIGH |
 
-Sul lato Azure sono presenti i check equivalenti.
+## Check implementati (Azure)
+
+Stesso core, servizi Azure. Ogni controllo ha un diretto corrispettivo AWS.
+
+| Plugin | Cosa rileva | Equivalente AWS | Severità |
+|---|---|---|---|
+| `public_storage.py` | Storage account con accesso pubblico ai blob | S3 pubblici | HIGH |
+| `iam_overprivileged.py` | Ruoli Owner / Contributor su scope troppo ampi (Subscription / Resource Group) | IAM overprivileged | HIGH / CRITICAL |
+| `open_network.py` | Network Security Group (NSG) con regole Inbound aperte a Internet (`*`, `0.0.0.0/0`) su porte critiche | Security Group aperti | MEDIUM / HIGH / CRITICAL |
+| `encryption_at_rest.py` | Storage account e dischi gestiti che non usano chiavi gestite dal cliente (CMK) | Cifratura a riposo | MEDIUM |
+| `imds_check.py` | VM senza Metadata Security Protocol in modalità *Enforce* sull'IMDS | IMDSv2 | MEDIUM / HIGH |
+| `activity_log_audit.py` | Activity Log della subscription non esportato o senza le categorie di sicurezza | CloudTrail | MEDIUM / HIGH |
+
+> Nota: su Azure la cifratura a riposo di base è sempre attiva (chiavi Microsoft); il check
+> segnala le risorse che non usano chiavi gestite dal cliente (CMK), come richiesto dalle
+> baseline CIS per i dati critici.
 
 ## Requisiti
 
 - Python 3.12 (vedi `.python-version`)
-- Le dipendenze in `requirements.txt` (principalmente `boto3` per AWS e gli SDK Azure)
+- Le dipendenze in `requirements.txt` (`boto3` per AWS, gli SDK Azure, `flask` per la web UI)
 - AWS CLI e/o Azure CLI configurate con un profilo valido
 
 ```bash
@@ -68,7 +83,7 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Utilizzo
+## Utilizzo (CLI)
 
 Lo scanner legge le credenziali dal profilo cloud attivo (non le gestisce lui).
 
@@ -83,6 +98,7 @@ python main.py --provider aws
 ### Azure
 
 ```bash
+az login
 python main.py --provider azure
 ```
 
@@ -104,6 +120,25 @@ HIGH       | honeypot-sg (sg-0b6ea68776528e688) | Regola Ingress aperta a 0.0.0.
 
 [*] Report dettagliato salvato in report.json
 ```
+
+## Interfaccia web (locale)
+
+Oltre alla CLI è disponibile una **interfaccia web locale** (`app.py` + `templates/index.html`)
+che riusa lo stesso `Engine`: un modo più semplice di usare lo scanner, senza terminale.
+
+```bash
+pip install -r requirements.txt
+export AWS_PROFILE=<tuo-profilo>          # per AWS; per Azure usare 'az login'
+python app.py
+```
+
+Poi aprire **http://127.0.0.1:5050** nel browser: si sceglie il provider (AWS / Azure), si
+avvia la scansione e i finding appaiono in una tabella colorata per severità, con i conteggi
+e un pulsante per scaricare il report JSON.
+
+- Il server ascolta **solo su `127.0.0.1` (localhost)**: non è esposto in rete e usa le
+  credenziali del profilo locale, esattamente come la CLI.
+- Porta **5050** e non 5000, perché su macOS la 5000 è occupata dal Ricevitore AirPlay.
 
 ## Aggiungere un nuovo check
 
