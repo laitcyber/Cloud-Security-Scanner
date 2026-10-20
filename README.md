@@ -54,8 +54,7 @@ nessuna parte.
 | `imds_check.py` | Istanze EC2 che permettono ancora IMDSv1 (esposte a SSRF) | HIGH |
 | `cloudtrail_audit.py` | CloudTrail assente, spento o senza copertura multi-region | MEDIUM / HIGH |
 
-Sul lato Azure sono presenti i check equivalenti per storage pubblico, ruoli troppo
-privilegiati e NSG aperti.
+Sul lato Azure sono presenti i check equivalenti.
 
 ## Requisiti
 
