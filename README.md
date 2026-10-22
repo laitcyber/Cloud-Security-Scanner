@@ -1,81 +1,79 @@
 # Cloud-Security-Scanner
 
-Scanner di sicurezza cloud scritto in Python, con un core generico e indipendente dal
-provider ed estendibile tramite plugin. L'obiettivo non è replicare tool già pronti come
-Prowler o ScoutSuite, ma progettare da zero un'architettura software pulita applicata a un
-problema reale: enumerare le risorse di un account cloud, rilevare le misconfigurazioni più
-comuni e produrre un report strutturato.
+A cloud security scanner written in Python, built around a generic, provider-independent
+core and extensible through plugins. The goal is not to replicate ready-made tools like
+Prowler or ScoutSuite, but to design a clean software architecture from scratch, applied to
+a real problem: enumerating the resources of a cloud account, detecting the most common
+misconfigurations, and producing a structured report.
 
-Lo stesso core funziona sia su **AWS** che su **Azure**: cambia solo il provider e i plugin
-caricati.
+The same core works on both **AWS** and **Azure**: only the provider and the loaded plugins
+change.
 
-Progetto sviluppato come project work del corso di cybersecurity (ITS Umbria Academy).
+Developed as a project work for the Cybersecurity course (ITS Umbria Academy).
 
 ---
 
-## Idea di fondo
+## Core idea
 
-La maggior parte degli incidenti cloud non nasce da bug della piattaforma, ma da
-**configurazioni sbagliate** di chi la usa (bucket lasciati pubblici, permessi IAM troppo
-larghi, porte aperte a tutti, dati non cifrati). Questo tool cerca proprio quelle
-configurazioni.
+Most cloud incidents are not caused by platform bugs, but by **misconfigurations** on the
+user's side (buckets left public, overly broad IAM permissions, ports open to everyone,
+unencrypted data). This tool looks for exactly those misconfigurations.
 
-## Architettura
+## Architecture
 
-Il core non sa cosa sia AWS o Azure: sa solo caricare una lista di plugin e chiamare il loro
-metodo `run()`, ricevendo in cambio oggetti `Finding` standard (severità, risorsa,
-descrizione, remediation). Ogni plugin usa l'SDK del provider (`boto3` per AWS,
-`azure-sdk` per Azure), mentre il Provider astrae l'autenticazione e le chiamate API comuni.
+The core does not know what AWS or Azure is: it only knows how to load a list of plugins and
+call their `run()` method, receiving standard `Finding` objects in return (severity,
+resource, description, remediation). Each plugin uses the provider's SDK (`boto3` for AWS,
+`azure-sdk` for Azure), while the Provider abstracts authentication and the common API calls.
 
-| Componente | Ruolo |
+| Component | Role |
 |---|---|
-| `core/engine.py` | Carica dinamicamente i plugin da una cartella e li esegue |
-| `core/finding.py` | Classe standard per i risultati (severity, resource, description, remediation) |
-| `core/plugin.py` | Interfaccia astratta comune a tutti i plugin |
-| `core/report.py` | Stampa a tabella e salvataggio del report JSON |
-| `providers/base.py` | Interfaccia astratta comune ai cloud provider |
-| `providers/aws_provider.py` | Autenticazione e chiamate API AWS (boto3) |
-| `providers/azure_provider.py` | Autenticazione e chiamate API Azure |
-| `plugins/aws/*.py` | Check specifici AWS |
-| `plugins/azure/*.py` | Check specifici Azure |
+| `core/engine.py` | Dynamically loads the plugins from a folder and runs them |
+| `core/finding.py` | Standard class for results (severity, resource, description, remediation) |
+| `core/plugin.py` | Abstract interface common to all plugins |
+| `core/report.py` | Terminal table output and JSON report saving |
+| `providers/base.py` | Abstract interface common to all cloud providers |
+| `providers/aws_provider.py` | AWS authentication and API calls (boto3) |
+| `providers/azure_provider.py` | Azure authentication and API calls |
+| `plugins/aws/*.py` | AWS-specific checks |
+| `plugins/azure/*.py` | Azure-specific checks |
 
-I plugin vengono scoperti in automatico: basta aggiungere un file nella cartella
-`plugins/<provider>/` con una classe che eredita da `Plugin`. Non serve registrarlo da
-nessuna parte.
+Plugins are discovered automatically: just add a file to the `plugins/<provider>/` folder with
+a class that inherits from `Plugin`. No registration needed anywhere.
 
-## Check implementati (AWS)
+## Implemented checks (AWS)
 
-| Plugin | Cosa rileva | Severità |
+| Plugin | What it detects | Severity |
 |---|---|---|
-| `public_storage.py` | Bucket S3 esposti pubblicamente | HIGH |
-| `iam_overprivileged.py` | Utenti IAM con policy troppo potenti (AdministratorAccess, PowerUserAccess, IAMFullAccess) | HIGH / CRITICAL |
-| `open_network.py` | Security Group con regole Ingress aperte a `0.0.0.0/0` (SSH, RDP, DB...) | MEDIUM / HIGH / CRITICAL |
-| `encryption_at_rest.py` | Bucket S3 e volumi EBS privi di cifratura a riposo | MEDIUM / HIGH |
-| `imds_check.py` | Istanze EC2 che permettono ancora IMDSv1 (esposte a SSRF) | HIGH |
-| `cloudtrail_audit.py` | CloudTrail assente, spento o senza copertura multi-region | MEDIUM / HIGH |
+| `public_storage.py` | Publicly exposed S3 buckets | HIGH |
+| `iam_overprivileged.py` | IAM users with overly powerful policies (AdministratorAccess, PowerUserAccess, IAMFullAccess) | HIGH / CRITICAL |
+| `open_network.py` | Security Groups with Ingress rules open to `0.0.0.0/0` (SSH, RDP, DB...) | MEDIUM / HIGH / CRITICAL |
+| `encryption_at_rest.py` | S3 buckets and EBS volumes without encryption at rest | MEDIUM / HIGH |
+| `imds_check.py` | EC2 instances that still allow IMDSv1 (exposed to SSRF) | HIGH |
+| `cloudtrail_audit.py` | CloudTrail missing, disabled, or without multi-region coverage | MEDIUM / HIGH |
 
-## Check implementati (Azure)
+## Implemented checks (Azure)
 
-Stesso core, servizi Azure. Ogni controllo ha un diretto corrispettivo AWS.
+Same core, Azure services. Each check has a direct AWS counterpart.
 
-| Plugin | Cosa rileva | Equivalente AWS | Severità |
+| Plugin | What it detects | AWS counterpart | Severity |
 |---|---|---|---|
-| `public_storage.py` | Storage account con accesso pubblico ai blob | S3 pubblici | HIGH |
-| `iam_overprivileged.py` | Ruoli Owner / Contributor su scope troppo ampi (Subscription / Resource Group) | IAM overprivileged | HIGH / CRITICAL |
-| `open_network.py` | Network Security Group (NSG) con regole Inbound aperte a Internet (`*`, `0.0.0.0/0`) su porte critiche | Security Group aperti | MEDIUM / HIGH / CRITICAL |
-| `encryption_at_rest.py` | Storage account e dischi gestiti che non usano chiavi gestite dal cliente (CMK) | Cifratura a riposo | MEDIUM |
-| `imds_check.py` | VM senza Metadata Security Protocol in modalità *Enforce* sull'IMDS | IMDSv2 | MEDIUM / HIGH |
-| `activity_log_audit.py` | Activity Log della subscription non esportato o senza le categorie di sicurezza | CloudTrail | MEDIUM / HIGH |
+| `public_storage.py` | Storage accounts with public blob access | Public S3 buckets | HIGH |
+| `iam_overprivileged.py` | Owner / Contributor roles on overly broad scopes (Subscription / Resource Group) | IAM overprivileged | HIGH / CRITICAL |
+| `open_network.py` | Network Security Groups (NSG) with Inbound rules open to the Internet (`*`, `0.0.0.0/0`) on critical ports | Open Security Groups | MEDIUM / HIGH / CRITICAL |
+| `encryption_at_rest.py` | Storage accounts and managed disks not using customer-managed keys (CMK) | Encryption at rest | MEDIUM |
+| `imds_check.py` | VMs without Metadata Security Protocol in *Enforce* mode on the IMDS | IMDSv2 | MEDIUM / HIGH |
+| `activity_log_audit.py` | Subscription Activity Log not exported or missing security categories | CloudTrail | MEDIUM / HIGH |
 
-> Nota: su Azure la cifratura a riposo di base è sempre attiva (chiavi Microsoft); il check
-> segnala le risorse che non usano chiavi gestite dal cliente (CMK), come richiesto dalle
-> baseline CIS per i dati critici.
+> Note: on Azure, encryption at rest is always enabled by default (Microsoft-managed keys);
+> the check flags resources that do not use customer-managed keys (CMK), as required by CIS
+> baselines for critical data.
 
-## Requisiti
+## Requirements
 
-- Python 3.12 (vedi `.python-version`)
-- Le dipendenze in `requirements.txt` (`boto3` per AWS, gli SDK Azure, `flask` per la web UI)
-- AWS CLI e/o Azure CLI configurate con un profilo valido
+- Python 3.12 (see `.python-version`)
+- The dependencies in `requirements.txt` (`boto3` for AWS, the Azure SDKs, `flask` for the web UI)
+- AWS CLI and/or Azure CLI configured with a valid profile
 
 ```bash
 python -m venv venv
@@ -83,14 +81,14 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
-## Utilizzo (CLI)
+## Usage (CLI)
 
-Lo scanner legge le credenziali dal profilo cloud attivo (non le gestisce lui).
+The scanner reads credentials from the active cloud profile (it does not manage them itself).
 
 ### AWS
 
 ```bash
-export AWS_PROFILE=<tuo-profilo>
+export AWS_PROFILE=<your-profile>
 export AWS_DEFAULT_REGION=eu-central-1
 python main.py --provider aws
 ```
@@ -102,68 +100,68 @@ az login
 python main.py --provider azure
 ```
 
-Al termine viene stampata una tabella riassuntiva e salvato un `report.json` con tutti i
-dettagli e le remediation.
+At the end, a summary table is printed to the terminal and a `report.json` is saved with all
+the details and remediations.
 
-### Esempio di output
+### Example output
 
 ```
 ================================================================================
-SEVERITY   | RISORSA                        | DESCRIZIONE
+SEVERITY   | RESOURCE                       | DESCRIPTION
 ================================================================================
-MEDIUM     | EBS Default Encryption (eu-central-1) | La cifratura EBS di default NON è a...
-HIGH       | EBS Volume: vol-0abc1234def567890 (eu-central-1) | Il volume EBS 'vol-0abc...
-CRITICAL   | IAM User: dev-example          | Policy rischiosa associata: 'Admini...
-HIGH       | EC2 Instance: i-0abc1234def567890 | L'istanza permette ancora IMDSv1...
-HIGH       | example-sg (sg-0abc1234def567890) | Regola Ingress aperta a 0.0.0.0/0...
+MEDIUM     | EBS Default Encryption (eu-central-1) | EBS default encryption is NOT en...
+HIGH       | EBS Volume: vol-0abc1234def567890 (eu-central-1) | EBS volume 'vol-0abc...
+CRITICAL   | IAM User: dev-example          | Risky attached policy: 'Administr...
+HIGH       | EC2 Instance: i-0abc1234def567890 | The instance still allows IMDSv1...
+HIGH       | example-sg (sg-0abc1234def567890) | Ingress rule open to 0.0.0.0/0...
 ================================================================================
 
-[*] Report dettagliato salvato in report.json
+[*] Detailed report saved to report.json
 ```
 
-## Interfaccia web (locale)
+## Web interface (local)
 
-Oltre alla CLI è disponibile una **interfaccia web locale** (`app.py` + `templates/index.html`)
-che riusa lo stesso `Engine`: un modo più semplice di usare lo scanner, senza terminale.
+In addition to the CLI, a **local web interface** is available (`app.py` +
+`templates/index.html`) that reuses the same `Engine`: an easier way to use the scanner,
+without the terminal.
 
 ```bash
 pip install -r requirements.txt
-export AWS_PROFILE=<tuo-profilo>          # per AWS; per Azure usare 'az login'
+export AWS_PROFILE=<your-profile>        # for AWS; for Azure use 'az login'
 python app.py
 ```
 
-Poi aprire **http://127.0.0.1:5050** nel browser: si sceglie il provider (AWS / Azure), si
-avvia la scansione e i finding appaiono in una tabella colorata per severità, con i conteggi
-e un pulsante per scaricare il report JSON.
+Then open **http://127.0.0.1:5050** in the browser: choose the provider (AWS / Azure), start
+the scan, and the findings appear in a table colored by severity, with counts and a button to
+download the JSON report.
 
-- Il server ascolta **solo su `127.0.0.1` (localhost)**: non è esposto in rete e usa le
-  credenziali del profilo locale, esattamente come la CLI.
-- Porta **5050** e non 5000, perché su macOS la 5000 è occupata dal Ricevitore AirPlay.
+- The server listens **only on `127.0.0.1` (localhost)**: it is not exposed on the network and
+  uses the local profile's credentials, exactly like the CLI.
+- Port **5050** and not 5000, because on macOS port 5000 is used by the AirPlay Receiver.
 
-## Aggiungere un nuovo check
+## Adding a new check
 
-1. Crea un file in `plugins/aws/` (o `plugins/azure/`), es. `mio_check.py`.
-2. Definisci una classe che eredita da `Plugin` e implementa `run(self, provider)`.
-3. Usa i metodi del provider (o `provider.session.client(...)` per AWS) per leggere le
-   risorse e restituisci una lista di `Finding`.
+1. Create a file in `plugins/aws/` (or `plugins/azure/`), e.g. `my_check.py`.
+2. Define a class that inherits from `Plugin` and implements `run(self, provider)`.
+3. Use the provider's methods (or `provider.session.client(...)` for AWS) to read the
+   resources, and return a list of `Finding` objects.
 
-L'engine lo caricherà automaticamente al prossimo avvio.
+The engine will load it automatically on the next run.
 
-## Note sull'ambiente di test
+## Notes on the test environment
 
-I check vanno validati su un ambiente volutamente vulnerabile. Durante il progetto la parte
-AWS è stata testata contro un ambiente predisposto dal team difensivo (blue team), usando
-un'utenza di sola lettura (`SecurityAudit` / `ViewOnlyAccess`): lo scanner enumera senza
-poter modificare nulla, e l'attività viene registrata dal loro CloudTrail. La parte Azure è
-stata testata su un account di test personale.
+The checks must be validated against a deliberately vulnerable environment. During the
+project, the AWS part was tested against an environment prepared by the defensive team (blue
+team), using a read-only identity (`SecurityAudit` / `ViewOnlyAccess`): the scanner enumerates
+without being able to modify anything, and the activity is recorded by their CloudTrail. The
+Azure part was tested on a personal test account.
 
 ## Disclaimer
 
-Questo strumento è stato realizzato a scopo **didattico** e va eseguito **solo su account
-cloud di cui si è proprietari o per i quali si ha un'autorizzazione esplicita**. L'uso contro
-infrastrutture di terzi senza permesso è illegale. Gli autori non si assumono alcuna
-responsabilità per usi impropri.
+This tool was built for **educational purposes** and must be run **only on cloud accounts you
+own or for which you have explicit authorization**. Using it against third-party infrastructure
+without permission is illegal. The authors assume no responsibility for improper use.
 
-## Licenza
+## License
 
-Distribuito con licenza MIT. Vedi il file [LICENSE](LICENSE).
+Distributed under the MIT license. See the [LICENSE](LICENSE) file.
